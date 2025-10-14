@@ -68,21 +68,76 @@ int calculator_close(remote_handle64 handle) {
    return 0;
 }
 
+// 拿到 float 的二进制表示
+static inline int32_t float_to_bits(float input)
+{
+    union {
+        float f;
+        int32_t i;
+    } fp32 = {.f = input};
+    return fp32.i;
+}
+
+static inline float hvx_reduce_sum(HVX_Vector acc) {
+    // 归约过程：多次右移并加
+    for (int shift = 16; shift >= 1; shift /= 2) {
+        HVX_Vector tmp = Q6_V_vror_VR(acc, shift * sizeof(float));
+        acc = Q6_Vqf32_vadd_Vqf32Vqf32(acc, tmp);
+    }
+    HVX_Vector acc_sf = Q6_Vsf_equals_Vqf32(acc);
+    // 取第一个元素作为最终sum
+    float result;
+    memcpy(&result, &acc_sf, sizeof(float));
+
+    return result;
+}
+
 static inline void matmul_ijk(float *restrict input_matrix1,
                  float *restrict input_matrix2,
                  float *restrict output,
                  uint32_t m,
                  uint32_t k,
                  uint32_t n) {
-	for (int i = 0;i < m; i++) {
-		for (int j = 0; j < n; j++) {
-			float sum = 0.0f;
-			for (int l = 0; l < k; l++) {
-				sum += input_matrix1[i * k + l] * input_matrix2[l * n + j];
-			}
-			output[i * n + j] = sum;
-		}
-	}
+    // a = m x k
+    // b = k x n
+    // c = m x n
+    // 外积计算矩阵乘法
+    int section = (n - 1) / 32 + 1;
+    HVX_Vector acc[section];
+    int tmp_n = n;
+    for (int i = 0; i < m; i++) {
+        for (int s = 0; s < section; s++) {
+            acc[s] = Q6_V_vzero();
+        }
+
+        for (int j = 0; j < k; j++) {
+            tmp_n = n;
+            HVX_Vector a_vec = Q6_V_vsplat_R(float_to_bits(input_matrix1[i * k + j]));
+            for (int s = 0; s < section; s++) {
+                HVX_Vector b_vec = Q6_V_vzero();
+                if (tmp_n > 32) {
+                    memcpy(&b_vec, &input_matrix2[j * n + s * 32], 32 * sizeof(float));
+                    tmp_n -= 32;
+                } else {
+                    memcpy(&b_vec, &input_matrix2[j * n + s * 32], tmp_n * sizeof(float));
+                }
+                HVX_Vector mul = Q6_Vqf32_vmpy_VsfVsf(a_vec, b_vec);
+                acc[s] = Q6_Vqf32_vadd_Vqf32Vqf32(acc[s], mul);
+            }
+        }
+
+        tmp_n = n;
+        for (int s = 0; s < section; s++) {
+            HVX_Vector res = Q6_Vsf_equals_Vqf32(acc[s]);
+            if (tmp_n > 32) {
+                memcpy(&output[i * n + s * 32], &res, 32 * sizeof(float));
+                tmp_n -= 32;
+            } else {
+                memcpy(&output[i * n + s * 32], &res, tmp_n * sizeof(float));
+            }
+        }
+    }
+
 	return;
 }
 
@@ -92,26 +147,38 @@ static inline void matmul_ikj_transposed_b(float *restrict input_matrix1,
                                      uint32_t m,
                                      uint32_t k,
                                      uint32_t n) {
-	for (int i = 0; i < m; i++) {
+    // a = m x k
+    // b = n x k (transposed)
+    // c = m x n
+    // a[i * k: i * k + k] * b[j * k: j * k + k] -> c[i * n + j];
+    for (int i = 0; i < m; i++) {
 		for (int j = 0; j < n; j++) {
-			float sum = 0.0f;
-			for (int l = 0; l < k; l++) {
-				sum += input_matrix1[i * k + l] * input_matrix2[j * k + l];
-			}
-			output[i * n + j] = sum;
+            HVX_Vector acc = Q6_V_vzero();
+            int l = 0;
+            for (; l + 31 < k; l += 32) {
+                HVX_Vector a_vec, b_vec;
+                memcpy(&a_vec, &input_matrix1[i * k + l], 128);
+                memcpy(&b_vec, &input_matrix2[j * k + l], 128);
+                HVX_Vector mul = Q6_Vqf32_vmpy_VsfVsf(a_vec, b_vec);
+                acc = Q6_Vqf32_vadd_Vqf32Vqf32(acc, mul);
+            }
+            // 处理剩余不足32个的部分
+            int rem = k - l;
+            if (rem > 0) {
+                HVX_Vector a_vec = Q6_V_vzero();
+                HVX_Vector b_vec = Q6_V_vzero();
+                memcpy(&a_vec, &input_matrix1[i * k + l], rem * sizeof(float));
+                memcpy(&b_vec, &input_matrix2[j * k + l], rem * sizeof(float));
+                HVX_Vector mul = Q6_Vqf32_vmpy_VsfVsf(a_vec, b_vec);
+                acc = Q6_Vqf32_vadd_Vqf32Vqf32(acc, mul);
+            }
+            // 归约acc为标量sum
+            float sum = hvx_reduce_sum(acc);
+            output[i * n + j] = sum;
 		}
 	}
-	return;
-}
 
-// 拿到 float 的二进制表示
-static inline int32_t float_to_bits(float input)
-{
-    union {
-        float f;
-        int32_t i;
-    } fp32 = {.f = input};
-    return fp32.i;
+	return;
 }
 
 int calculator_gemm(remote_handle64 h, 
