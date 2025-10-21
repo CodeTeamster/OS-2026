@@ -181,6 +181,42 @@ static inline void matmul_ikj_transposed_b(float *restrict input_matrix1,
 	return;
 }
 
+// static inline void matmul_ijk(float *restrict input_matrix1,
+//                  float *restrict input_matrix2,
+//                  float *restrict output,
+//                  uint32_t m,
+//                  uint32_t k,
+//                  uint32_t n) {
+// 	for (int i = 0;i < m; i++) {
+// 		for (int j = 0; j < n; j++) {
+// 			float sum = 0.0f;
+// 			for (int l = 0; l < k; l++) {
+// 				sum += input_matrix1[i * k + l] * input_matrix2[l * n + j];
+// 			}
+// 			output[i * n + j] = sum;
+// 		}
+// 	}
+// 	return;
+// }
+
+// static inline void matmul_ikj_transposed_b(float *restrict input_matrix1,
+//                                      float *restrict input_matrix2,
+//                                      float *restrict output,
+//                                      uint32_t m,
+//                                      uint32_t k,
+//                                      uint32_t n) {
+// 	for (int i = 0; i < m; i++) {
+// 		for (int j = 0; j < n; j++) {
+// 			float sum = 0.0f;
+// 			for (int l = 0; l < k; l++) {
+// 				sum += input_matrix1[i * k + l] * input_matrix2[j * k + l];
+// 			}
+// 			output[i * n + j] = sum;
+// 		}
+// 	}
+// 	return;
+// }
+
 int calculator_gemm(remote_handle64 h, 
 					const float* input_matrix1,
 					int input_matrix1Len,
@@ -202,7 +238,6 @@ int calculator_gemm(remote_handle64 h,
 	if (input_matrix2Len < k * n) {
 		return AEE_EBADPARM;
 	}
-
 	if (outputLen < m * n) {
 		return AEE_EBADPARM;
 	}
@@ -213,8 +248,8 @@ int calculator_gemm(remote_handle64 h,
 								output, m, k, n);
 	} else {
 		matmul_ijk((float*)input_matrix1,
-						(float*)input_matrix2,
-						output, m, k, n);
+                   (float*)input_matrix2,
+				   output, m, k, n);
 	}
 
 	return 0;

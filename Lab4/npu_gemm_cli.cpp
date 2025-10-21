@@ -81,14 +81,15 @@ int main(int argc, char* argv[]) {
 	printf("Calling NPU for GEMM calculation (A * B^T)...\n");
 
 	auto start_time = std::chrono::high_resolution_clock::now();
+	bool transA = false, transB = false;
 
 	int result = calculator_gemm_cpp(
 		matrix_a.data(),
 		matrix_b.data(),
 		m, k, n,
 		matrix_c.data(),
-		false,
-		true
+		transA,
+		transB
 	);
 
 	auto end_time = std::chrono::high_resolution_clock::now();
@@ -113,7 +114,7 @@ int main(int argc, char* argv[]) {
 	if (cpu_check) {
 		printf("\nCheck if the result is correct...\n");
 		std::vector<float> cpu_result(m * n, 0.0f);
-		cpu_gemm_naive(matrix_a.data(), matrix_b.data(), m, k, n, cpu_result.data(), false, true);
+		cpu_gemm_naive(matrix_a.data(), matrix_b.data(), m, k, n, cpu_result.data(), transA, transB);
 		printf("CPU Result matrix C (first 10 elements):\n");
 		for (uint32_t i = 0; i < std::min((uint32_t)10, m * n); ++i) {
 			printf("%.2f ", cpu_result[i]);
