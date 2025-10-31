@@ -13,6 +13,7 @@
 - [使用 Hexagon 指令集优化矩阵乘法](#使用-hexagon-指令集优化矩阵乘法)
   - [HVX 指令参考手册](#hvx-指令参考手册)
 - [任务目标](#任务目标)
+- [提交内容](#提交内容)
 
 ---
 
@@ -567,3 +568,8 @@ static inline void matmul_ijk(float *restrict input_matrix1,
       - 使用定点格式（如 QF16）代替浮点格式，减少内存占用和带宽需求。
    - 多线程并行
       - 在多核 DSP 上，使用多线程并行计算不同的矩阵块
+
+## 提交内容
+
+- 修改后的`calculator_imp.c`
+- 实验报告
